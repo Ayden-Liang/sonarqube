@@ -19,8 +19,10 @@
  */
 package org.sonar.batch.components;
 
-import org.sonar.api.batch.RequiresDB;
+import org.sonar.batch.deprecated.components.Period;
+import org.sonar.batch.deprecated.components.PeriodsDefinition;
 
+import org.sonar.api.batch.RequiresDB;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

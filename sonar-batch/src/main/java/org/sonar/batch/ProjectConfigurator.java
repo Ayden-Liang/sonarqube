@@ -39,6 +39,10 @@ import javax.annotation.Nullable;
 
 import java.util.Date;
 
+/**
+ * Used by views !!
+ *
+ */
 public class ProjectConfigurator implements BatchComponent {
 
   private static final Logger LOG = LoggerFactory.getLogger(ProjectConfigurator.class);

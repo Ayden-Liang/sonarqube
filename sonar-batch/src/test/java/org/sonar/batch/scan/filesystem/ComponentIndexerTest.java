@@ -27,7 +27,6 @@ import org.junit.rules.TemporaryFolder;
 import org.mockito.ArgumentMatcher;
 import org.sonar.api.batch.SonarIndex;
 import org.sonar.api.batch.fs.InputFile;
-import org.sonar.api.batch.fs.internal.DefaultFileSystem;
 import org.sonar.api.batch.fs.internal.DefaultInputFile;
 import org.sonar.api.batch.fs.internal.DeprecatedDefaultInputFile;
 import org.sonar.api.resources.AbstractLanguage;
@@ -42,22 +41,26 @@ import java.io.IOException;
 import static org.mockito.Matchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class ComponentIndexerTest {
 
   @Rule
   public TemporaryFolder temp = new TemporaryFolder();
   private File baseDir;
-  private DefaultFileSystem fs = new DefaultFileSystem();
+
   private SonarIndex sonarIndex;
   private AbstractLanguage cobolLanguage;
   private Project project;
+  private ModuleFileSystemInitializer initializer;
 
   @Before
   public void prepare() throws IOException {
     baseDir = temp.newFolder();
     sonarIndex = mock(SonarIndex.class);
     project = new Project("myProject");
+    initializer = mock(ModuleFileSystemInitializer.class);
+    when(initializer.workingDir()).thenReturn(temp.newFolder());
     cobolLanguage = new AbstractLanguage("cobol") {
       @Override
       public String[] getFileSuffixes() {
@@ -68,15 +71,18 @@ public class ComponentIndexerTest {
 
   @Test
   public void should_index_java_files() throws IOException {
+    Languages languages = new Languages(Java.INSTANCE);
+    ComponentIndexer indexer = createIndexer(languages);
+    DefaultModuleFileSystem fs = new DefaultModuleFileSystem(null, project, null, mock(FileIndexer.class), initializer, indexer);
+    fs.setBaseDir(baseDir.toPath());
     fs.add(newInputFile("src/main/java/foo/bar/Foo.java", "", "foo/bar/Foo.java", "java", false));
     fs.add(newInputFile("src/main/java2/foo/bar/Foo.java", "", "foo/bar/Foo.java", "java", false));
     fs.add(newInputFile("src/test/java/foo/bar/FooTest.java", "", "foo/bar/FooTest.java", "java", true));
-    Languages languages = new Languages(Java.INSTANCE);
-    ComponentIndexer indexer = createIndexer(languages);
-    indexer.execute(fs);
 
-    verify(sonarIndex).index(org.sonar.api.resources.File.create("src/main/java/foo/bar/Foo.java", "foo/bar/Foo.java", Java.INSTANCE, false));
-    verify(sonarIndex).index(org.sonar.api.resources.File.create("src/main/java2/foo/bar/Foo.java", "foo/bar/Foo.java", Java.INSTANCE, false));
+    fs.index();
+
+    verify(sonarIndex).index(org.sonar.api.resources.File.create("src/main/java/foo/bar/Foo.java", Java.INSTANCE, false));
+    verify(sonarIndex).index(org.sonar.api.resources.File.create("src/main/java2/foo/bar/Foo.java", Java.INSTANCE, false));
     verify(sonarIndex).index(argThat(new ArgumentMatcher<org.sonar.api.resources.File>() {
       @Override
       public boolean matches(Object arg0) {
@@ -94,25 +100,25 @@ public class ComponentIndexerTest {
 
   @Test
   public void should_index_cobol_files() throws IOException {
+    Languages languages = new Languages(cobolLanguage);
+    ComponentIndexer indexer = createIndexer(languages);
+    DefaultModuleFileSystem fs = new DefaultModuleFileSystem(null, project, null, mock(FileIndexer.class), initializer, indexer);
+    fs.setBaseDir(baseDir.toPath());
     fs.add(newInputFile("src/foo/bar/Foo.cbl", "", "foo/bar/Foo.cbl", "cobol", false));
     fs.add(newInputFile("src2/foo/bar/Foo.cbl", "", "foo/bar/Foo.cbl", "cobol", false));
     fs.add(newInputFile("src/test/foo/bar/FooTest.cbl", "", "foo/bar/FooTest.cbl", "cobol", true));
 
-    Languages languages = new Languages(cobolLanguage);
-    ComponentIndexer indexer = createIndexer(languages);
-    indexer.execute(fs);
+    fs.index();
 
-    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src/foo/bar/Foo.cbl", "foo/bar/Foo.cbl", cobolLanguage, false));
-    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src2/foo/bar/Foo.cbl", "foo/bar/Foo.cbl", cobolLanguage, false));
-    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src/test/foo/bar/FooTest.cbl", "foo/bar/FooTest.cbl", cobolLanguage, true));
+    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src/foo/bar/Foo.cbl", cobolLanguage, false));
+    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src2/foo/bar/Foo.cbl", cobolLanguage, false));
+    verify(sonarIndex).index(org.sonar.api.resources.File.create("/src/test/foo/bar/FooTest.cbl", cobolLanguage, true));
   }
 
   private DefaultInputFile newInputFile(String path, String content, String sourceRelativePath, String languageKey, boolean unitTest) throws IOException {
     File file = new File(baseDir, path);
     FileUtils.write(file, content);
     return new DeprecatedDefaultInputFile("foo", path)
-      .setPathRelativeToSourceDir(sourceRelativePath)
-      .setFile(file)
       .setLanguage(languageKey)
       .setType(unitTest ? InputFile.Type.TEST : InputFile.Type.MAIN);
   }

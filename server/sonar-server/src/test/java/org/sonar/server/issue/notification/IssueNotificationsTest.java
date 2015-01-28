@@ -124,7 +124,7 @@ public class IssueNotificationsTest {
       .setComponentKey("struts:Action.java")
       .setProjectKey("struts");
     Notification notification = issueNotifications.sendChanges(issue, "charlie", null, new Project("struts"),
-      new ResourceComponent(File.create("Action.java", "Action.java", null, false).setEffectiveKey("struts:Action.java")), null, false);
+      new ResourceComponent(File.create("Action.java", null, false).setEffectiveKey("struts:Action.java")), null, false);
 
     assertThat(notification.getFieldValue("message")).isEqualTo("the message");
     assertThat(notification.getFieldValue("key")).isEqualTo("ABCDE");

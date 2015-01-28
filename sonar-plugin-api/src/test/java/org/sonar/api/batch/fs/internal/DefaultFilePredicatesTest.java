@@ -46,7 +46,7 @@ public class DefaultFilePredicatesTest {
   @Before
   public void before() throws IOException {
     javaFile = new DefaultInputFile("foo", "src/main/java/struts/Action.java")
-      .setFile(temp.newFile("Action.java"))
+      .setModuleBaseDir(temp.newFolder().toPath())
       .setLanguage("java")
       .setStatus(InputFile.Status.ADDED);
   }

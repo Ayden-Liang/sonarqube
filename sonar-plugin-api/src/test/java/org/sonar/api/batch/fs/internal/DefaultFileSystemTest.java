@@ -26,6 +26,7 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,7 +43,7 @@ public class DefaultFileSystemTest {
     DefaultFileSystem fs = new DefaultFileSystem();
 
     File basedir = temp.newFolder();
-    fs.setBaseDir(basedir);
+    fs.setBaseDir(basedir.toPath());
     assertThat(fs.baseDir()).isAbsolute().isDirectory().exists();
     assertThat(fs.baseDir().getCanonicalPath()).isEqualTo(basedir.getCanonicalPath());
 
@@ -77,15 +78,17 @@ public class DefaultFileSystemTest {
   @Test
   public void files() throws Exception {
     DefaultFileSystem fs = new DefaultFileSystem();
+    Path moduleBaseDir = temp.newFolder().toPath();
+    fs.setBaseDir(moduleBaseDir);
 
     assertThat(fs.inputFiles(fs.predicates().all())).isEmpty();
 
-    fs.add(new DefaultInputFile("foo", "src/Foo.php").setLanguage("php").setFile(temp.newFile()));
-    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java").setFile(temp.newFile()));
-    fs.add(new DefaultInputFile("foo", "src/Baz.java").setLanguage("java").setFile(temp.newFile()));
+    fs.add(new DefaultInputFile("foo", "src/Foo.php").setLanguage("php"));
+    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java"));
+    fs.add(new DefaultInputFile("foo", "src/Baz.java").setLanguage("java"));
 
     // no language
-    fs.add(new DefaultInputFile("foo", "src/readme.txt").setFile(temp.newFile()));
+    fs.add(new DefaultInputFile("foo", "src/readme.txt").setModuleBaseDir(moduleBaseDir));
 
     assertThat(fs.inputFile(fs.predicates().hasRelativePath("src/Bar.java"))).isNotNull();
     assertThat(fs.inputFile(fs.predicates().hasRelativePath("does/not/exist"))).isNull();
@@ -119,8 +122,9 @@ public class DefaultFileSystemTest {
     thrown.expectMessage("expected one element");
 
     DefaultFileSystem fs = new DefaultFileSystem();
-    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java").setFile(temp.newFile()));
-    fs.add(new DefaultInputFile("foo", "src/Baz.java").setLanguage("java").setFile(temp.newFile()));
+    fs.setBaseDir(temp.newFolder().toPath());
+    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java"));
+    fs.add(new DefaultInputFile("foo", "src/Baz.java").setLanguage("java"));
 
     fs.inputFile(fs.predicates().all());
   }
@@ -128,7 +132,8 @@ public class DefaultFileSystemTest {
   @Test
   public void input_file_supports_non_indexed_predicates() throws Exception {
     DefaultFileSystem fs = new DefaultFileSystem();
-    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java").setFile(temp.newFile()));
+    fs.setBaseDir(temp.newFolder().toPath());
+    fs.add(new DefaultInputFile("foo", "src/Bar.java").setLanguage("java"));
 
     // it would fail if more than one java file
     assertThat(fs.inputFile(fs.predicates().hasLanguage("java"))).isNotNull();

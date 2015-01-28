@@ -23,6 +23,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 import org.sonar.api.batch.AnalysisMode;
 import org.sonar.api.batch.fs.InputFile;
 import org.sonar.api.batch.fs.internal.DefaultFileSystem;
@@ -32,6 +33,8 @@ import org.sonar.api.batch.rule.internal.ActiveRulesBuilder;
 import org.sonar.api.batch.sensor.internal.DefaultSensorDescriptor;
 import org.sonar.api.config.Settings;
 import org.sonar.api.rule.RuleKey;
+
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -43,6 +46,10 @@ public class AnalyzerOptimizerTest {
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
+
+  @Rule
+  public TemporaryFolder temp = new TemporaryFolder();
+
   private AnalyzerOptimizer optimizer;
 
   private Settings settings;
@@ -50,10 +57,11 @@ public class AnalyzerOptimizerTest {
   private AnalysisMode analysisMode;
 
   @Before
-  public void prepare() {
+  public void prepare() throws IOException {
     settings = new Settings();
     analysisMode = mock(AnalysisMode.class);
     optimizer = new AnalyzerOptimizer(fs, new ActiveRulesBuilder().build(), settings, analysisMode);
+    fs.setBaseDir(temp.newFolder().toPath());
   }
 
   @Test

@@ -34,6 +34,7 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -50,7 +51,7 @@ public class DefaultFileSystem implements FileSystem {
 
   private final Cache cache;
   private final SortedSet<String> languages = new TreeSet<String>();
-  private File baseDir, workDir;
+  private Path baseDir, workDir;
   private Charset encoding;
   private final FilePredicates predicates = new DefaultFilePredicates();
 
@@ -62,18 +63,18 @@ public class DefaultFileSystem implements FileSystem {
   }
 
   protected DefaultFileSystem(Cache cache) {
-    this.cache = cache;
+    this.cache = cache != null ? cache : new MapCache();
   }
 
-  public DefaultFileSystem setBaseDir(File d) {
+  public DefaultFileSystem setBaseDir(Path d) {
     Preconditions.checkNotNull(d, "Base directory can't be null");
-    this.baseDir = d.getAbsoluteFile();
+    this.baseDir = d.toAbsolutePath().normalize();
     return this;
   }
 
   @Override
   public File baseDir() {
-    return baseDir;
+    return baseDir.toFile();
   }
 
   public DefaultFileSystem setEncoding(@Nullable Charset e) {
@@ -91,13 +92,13 @@ public class DefaultFileSystem implements FileSystem {
   }
 
   public DefaultFileSystem setWorkDir(File d) {
-    this.workDir = d.getAbsoluteFile();
+    this.workDir = d.getAbsoluteFile().toPath().normalize();
     return this;
   }
 
   @Override
   public File workDir() {
-    return workDir;
+    return workDir.toFile();
   }
 
   @Override
@@ -162,7 +163,7 @@ public class DefaultFileSystem implements FileSystem {
   @Override
   public InputDir inputDir(File dir) {
     doPreloadFiles();
-    String relativePath = PathUtils.sanitize(new PathResolver().relativePath(baseDir, dir));
+    String relativePath = PathUtils.sanitize(new PathResolver().relativePath(baseDir.toFile(), dir));
     if (relativePath == null) {
       return null;
     }
@@ -183,7 +184,11 @@ public class DefaultFileSystem implements FileSystem {
    * Adds InputFile to the list and registers its language, if present.
    * Synchronized because PersistIt Exchange is not concurrent
    */
-  public synchronized DefaultFileSystem add(InputFile inputFile) {
+  public synchronized DefaultFileSystem add(DefaultInputFile inputFile) {
+    if (this.baseDir == null) {
+      throw new IllegalStateException("Please set basedir on filesystem before adding files");
+    }
+    inputFile.setModuleBaseDir(this.baseDir);
     cache.add(inputFile);
     if (inputFile.language() != null) {
       languages.add(inputFile.language());
@@ -195,7 +200,11 @@ public class DefaultFileSystem implements FileSystem {
    * Adds InputDir to the list.
    * Synchronized because PersistIt Exchange is not concurrent
    */
-  public synchronized DefaultFileSystem add(InputDir inputDir) {
+  public synchronized DefaultFileSystem add(DefaultInputDir inputDir) {
+    if (this.baseDir == null) {
+      throw new IllegalStateException("Please set basedir on filesystem before adding dirs");
+    }
+    inputDir.setModuleBaseDir(this.baseDir);
     cache.add(inputDir);
     return this;
   }

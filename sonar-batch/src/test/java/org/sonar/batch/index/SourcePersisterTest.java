@@ -19,13 +19,14 @@
  */
 package org.sonar.batch.index;
 
+import com.google.common.base.Charsets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.sonar.api.batch.fs.InputPath;
+import org.sonar.api.batch.fs.InputFile;
 import org.sonar.api.batch.fs.internal.DefaultInputFile;
 import org.sonar.api.batch.sensor.duplication.DuplicationGroup;
 import org.sonar.api.batch.sensor.highlighting.TypeOfText;
@@ -40,6 +41,7 @@ import org.sonar.batch.ProjectTree;
 import org.sonar.batch.duplication.DuplicationCache;
 import org.sonar.batch.highlighting.SyntaxHighlightingData;
 import org.sonar.batch.highlighting.SyntaxHighlightingDataBuilder;
+import org.sonar.batch.scan.filesystem.InputFileMetadata;
 import org.sonar.batch.scan.filesystem.InputPathCache;
 import org.sonar.batch.scan.measure.MeasureCache;
 import org.sonar.batch.source.CodeColorizers;
@@ -109,10 +111,11 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     FileUtils.write(sameFile, "unchanged\ncontent");
     DefaultInputFile inputFileNew = new DefaultInputFile(PROJECT_KEY, relativePathSame)
       .setLines(2)
-      .setAbsolutePath(sameFile.getAbsolutePath())
-      .setHash("123456")
-      .setLineHashes(new byte[][] {md5("unchanged"), md5("content")});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileNew));
+      .setModuleBaseDir(basedir.toPath()).setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setHash("123456");
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileNew));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathSame)).thenReturn(metadata);
 
     mockResourceCache(relativePathSame, PROJECT_KEY, "uuidsame");
 
@@ -132,10 +135,11 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     java.io.File sameFile = new java.io.File(basedir, relativePathSame);
     FileUtils.write(sameFile, "unchanged\ncontent");
     DefaultInputFile inputFileNew = new DefaultInputFile(PROJECT_KEY, relativePathSame).setLines(2)
-      .setAbsolutePath(sameFile.getAbsolutePath())
-      .setHash("123456")
-      .setLineHashes(new byte[][] {md5("unchanged"), md5("ncontent")});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileNew));
+      .setModuleBaseDir(basedir.toPath()).setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setHash("123456");
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileNew));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathSame)).thenReturn(metadata);
 
     mockResourceCache(relativePathSame, PROJECT_KEY, "uuidsame");
 
@@ -153,10 +157,11 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     java.io.File sameFile = new java.io.File(basedir, relativePathSame);
     FileUtils.write(sameFile, "changed\ncontent");
     DefaultInputFile inputFileNew = new DefaultInputFile(PROJECT_KEY, relativePathSame).setLines(2)
-      .setAbsolutePath(sameFile.getAbsolutePath())
-      .setHash("123456")
-      .setLineHashes(new byte[][] {md5("changed"), md5("content")});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileNew));
+      .setModuleBaseDir(basedir.toPath()).setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setHash("123456");
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileNew));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathSame)).thenReturn(metadata);
 
     mockResourceCache(relativePathSame, PROJECT_KEY, "uuidsame");
 
@@ -178,11 +183,16 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     when(system2.newDate()).thenReturn(DateUtils.parseDateTime("2014-10-29T16:44:02+0100"));
 
     String relativePathEmpty = "src/empty.java";
+    java.io.File newFile = new java.io.File(basedir, relativePathEmpty);
+    FileUtils.write(newFile, "");
     DefaultInputFile inputFileEmpty = new DefaultInputFile(PROJECT_KEY, relativePathEmpty)
       .setLines(0)
-      .setHash(null)
-      .setLineHashes(new byte[][] {});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileEmpty));
+      .setModuleBaseDir(basedir.toPath())
+      .setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setHash(null);
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileEmpty));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathEmpty)).thenReturn(metadata);
 
     mockResourceCache(relativePathEmpty, PROJECT_KEY, "uuidempty");
 
@@ -201,9 +211,11 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     FileUtils.write(newFile, "foo\nbar\nbiz");
     DefaultInputFile inputFileNew = new DefaultInputFile(PROJECT_KEY, relativePathNew)
       .setLines(3)
-      .setAbsolutePath(newFile.getAbsolutePath())
-      .setLineHashes(new byte[][] {md5("foo"), md5("bar"), md5("biz")});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileNew));
+      .setModuleBaseDir(basedir.toPath()).setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setHash("12345");
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileNew));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathNew)).thenReturn(metadata);
 
     mockResourceCache(relativePathNew, PROJECT_KEY, "uuidnew");
 
@@ -229,10 +241,11 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     FileUtils.write(newFile, "foo\nbar\nbiz");
     DefaultInputFile inputFileNew = new DefaultInputFile(PROJECT_KEY, relativePathNew)
       .setLines(3)
-      .setAbsolutePath(newFile.getAbsolutePath())
-      .setOriginalLineOffsets(new long[] {0, 4, 7})
-      .setLineHashes(new byte[][] {md5("foo"), md5("bar"), md5("biz")});
-    when(inputPathCache.all()).thenReturn(Arrays.<InputPath>asList(inputFileNew));
+      .setModuleBaseDir(basedir.toPath()).setCharset(Charsets.UTF_8);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
+    when(inputPathCache.allFiles()).thenReturn(Arrays.<InputFile>asList(inputFileNew));
+    when(inputPathCache.getFileMetadata(PROJECT_KEY, relativePathNew)).thenReturn(metadata);
 
     mockResourceCache(relativePathNew, PROJECT_KEY, "uuidnew");
 
@@ -306,8 +319,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void testSimpleConversionOfHighlightingOffset() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata();
+    metadata.setOriginalLineOffsets(new int[] {0, 4, 7});
 
     SyntaxHighlightingData highlighting = new SyntaxHighlightingDataBuilder()
       .registerHighlightingRule(0, 4, TypeOfText.ANNOTATION)
@@ -315,7 +329,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
       .registerHighlightingRule(7, 16, TypeOfText.CONSTANT)
       .build();
 
-    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, highlighting);
+    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, metadata, highlighting);
 
     assertThat(highlightingPerLine).containsOnly("0,4,a", "0,1,cd", "0,9,c");
   }
@@ -323,8 +337,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void testConversionOfHighlightingOffsetMultiLine() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
 
     SyntaxHighlightingData highlighting = new SyntaxHighlightingDataBuilder()
       .registerHighlightingRule(0, 3, TypeOfText.ANNOTATION)
@@ -332,7 +347,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
       .registerHighlightingRule(10, 16, TypeOfText.CONSTANT)
       .build();
 
-    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, highlighting);
+    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, metadata, highlighting);
 
     assertThat(highlightingPerLine).containsOnly("0,3,a", "0,3,cd", "0,2,cd;3,9,c");
   }
@@ -340,8 +355,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void testConversionOfHighlightingNestedRules() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
 
     SyntaxHighlightingData highlighting = new SyntaxHighlightingDataBuilder()
       .registerHighlightingRule(0, 3, TypeOfText.ANNOTATION)
@@ -350,7 +366,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
       .registerHighlightingRule(8, 15, TypeOfText.KEYWORD)
       .build();
 
-    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, highlighting);
+    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, metadata, highlighting);
 
     assertThat(highlightingPerLine).containsOnly("0,3,a", "0,2,cd", "0,9,c;1,8,k");
   }
@@ -358,8 +374,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void testConversionOfHighlightingNestedRulesMultiLine() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
 
     SyntaxHighlightingData highlighting = new SyntaxHighlightingDataBuilder()
       .registerHighlightingRule(0, 3, TypeOfText.ANNOTATION)
@@ -368,7 +385,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
       .registerHighlightingRule(8, 15, TypeOfText.KEYWORD)
       .build();
 
-    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, highlighting);
+    String[] highlightingPerLine = sourcePersister.computeHighlightingPerLine(file, metadata, highlighting);
 
     assertThat(highlightingPerLine).containsOnly("0,3,a", "0,3,c;0,2,cd", "0,9,c;1,8,k");
   }
@@ -376,8 +393,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void testSimpleConversionOfSymbolOffset() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
 
     DefaultSymbolTableBuilder symbolBuilder = new DefaultSymbolTableBuilder(PROJECT_KEY + ":" + "src/foo.java", null);
     org.sonar.api.batch.sensor.symbol.Symbol s1 = symbolBuilder.newSymbol(1, 2);
@@ -387,7 +405,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     symbolBuilder.newReference(s2, 0);
     symbolBuilder.newReference(s2, 7);
 
-    String[] symbolsPerLine = sourcePersister.computeSymbolReferencesPerLine(file, symbolBuilder.build());
+    String[] symbolsPerLine = sourcePersister.computeSymbolReferencesPerLine(file, metadata, symbolBuilder.build());
 
     assertThat(symbolsPerLine).containsOnly("1,2,1;0,2,2", "0,1,1;0,2,2", "4,5,1;0,2,2");
   }
@@ -395,8 +413,9 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
   @Test
   public void verifyDeclarationOrderOfSymbolHasNoImpact() {
     DefaultInputFile file = new DefaultInputFile(PROJECT_KEY, "src/foo.java")
-      .setLines(3)
-      .setOriginalLineOffsets(new long[] {0, 4, 7});
+      .setLines(3);
+    InputFileMetadata metadata = new InputFileMetadata()
+      .setOriginalLineOffsets(new int[] {0, 4, 7});
 
     DefaultSymbolTableBuilder symbolBuilder = new DefaultSymbolTableBuilder(PROJECT_KEY + ":" + "src/foo.java", null);
     org.sonar.api.batch.sensor.symbol.Symbol s2 = symbolBuilder.newSymbol(4, 6);
@@ -406,7 +425,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     symbolBuilder.newReference(s1, 11);
     symbolBuilder.newReference(s1, 4);
 
-    String[] symbolsPerLine = sourcePersister.computeSymbolReferencesPerLine(file, symbolBuilder.build());
+    String[] symbolsPerLine = sourcePersister.computeSymbolReferencesPerLine(file, metadata, symbolBuilder.build());
 
     assertThat(symbolsPerLine).containsOnly("1,2,1;0,2,2", "0,1,1;0,2,2", "4,5,1;0,2,2");
   }

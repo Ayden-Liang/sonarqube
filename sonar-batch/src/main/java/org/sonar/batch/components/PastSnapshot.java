@@ -30,6 +30,9 @@ import javax.annotation.Nullable;
 import java.util.Calendar;
 import java.util.Date;
 
+/**
+ * Used by devcockpit
+ */
 public class PastSnapshot {
 
   private int index;
@@ -95,7 +98,7 @@ public class PastSnapshot {
     return this;
   }
 
-  Integer getProjectSnapshotId() {
+  public Integer getProjectSnapshotId() {
     return projectSnapshot != null ? projectSnapshot.getId() : null;
   }
 
@@ -111,7 +114,7 @@ public class PastSnapshot {
     return targetDate;
   }
 
-  public PastSnapshot clonePastSnapshot(){
+  public PastSnapshot clonePastSnapshot() {
     PastSnapshot clone = new PastSnapshot(mode, targetDate, projectSnapshot);
     clone.setIndex(index);
     clone.setModeParameter(modeParameter);

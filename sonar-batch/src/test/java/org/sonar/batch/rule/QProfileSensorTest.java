@@ -20,6 +20,7 @@
 package org.sonar.batch.rule;
 
 import org.junit.Test;
+import org.sonar.api.batch.AnalysisMode;
 import org.sonar.api.batch.SensorContext;
 import org.sonar.api.batch.fs.internal.DefaultFileSystem;
 import org.sonar.api.measures.CoreMetrics;
@@ -32,7 +33,9 @@ import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Matchers.argThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class QProfileSensorTest {
 
@@ -49,15 +52,24 @@ public class QProfileSensorTest {
 
   @Test
   public void to_string() throws Exception {
-    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, mock(AnalysisMode.class));
     assertThat(sensor.toString()).isEqualTo("QProfileSensor");
+  }
+
+  @Test
+  public void no_execution_in_preview() throws Exception {
+    AnalysisMode analysisMode = mock(AnalysisMode.class);
+    when(analysisMode.isPreview()).thenReturn(true);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, analysisMode);
+    assertThat(sensor.shouldExecuteOnProject(project)).isFalse();
+
   }
 
   @Test
   public void no_qprofiles() throws Exception {
     when(moduleQProfiles.findAll()).thenReturn(Collections.<QProfile>emptyList());
 
-    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, mock(AnalysisMode.class));
     assertThat(sensor.shouldExecuteOnProject(project)).isTrue();
     sensor.analyse(project, sensorContext);
 
@@ -72,7 +84,7 @@ public class QProfileSensorTest {
     when(moduleQProfiles.findByLanguage("abap")).thenReturn(null);
     fs.addLanguages("java", "php", "abap");
 
-    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, mock(AnalysisMode.class));
     assertThat(sensor.shouldExecuteOnProject(project)).isTrue();
     sensor.analyse(project, sensorContext);
   }
@@ -84,7 +96,7 @@ public class QProfileSensorTest {
     when(moduleQProfiles.findByLanguage("abap")).thenReturn(null);
     fs.addLanguages("java");
 
-    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, mock(AnalysisMode.class));
     assertThat(sensor.shouldExecuteOnProject(project)).isTrue();
     sensor.analyse(project, sensorContext);
 
@@ -100,7 +112,7 @@ public class QProfileSensorTest {
     when(moduleQProfiles.findByLanguage("abap")).thenReturn(null);
     fs.addLanguages("java", "php");
 
-    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs);
+    QProfileSensor sensor = new QProfileSensor(moduleQProfiles, fs, mock(AnalysisMode.class));
     assertThat(sensor.shouldExecuteOnProject(project)).isTrue();
     sensor.analyse(project, sensorContext);
 

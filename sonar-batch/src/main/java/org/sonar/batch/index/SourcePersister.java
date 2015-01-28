@@ -20,7 +20,6 @@
 package org.sonar.batch.index;
 
 import com.google.common.base.CharMatcher;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -43,6 +42,7 @@ import org.sonar.batch.ProjectTree;
 import org.sonar.batch.duplication.DuplicationCache;
 import org.sonar.batch.highlighting.SyntaxHighlightingData;
 import org.sonar.batch.highlighting.SyntaxHighlightingRule;
+import org.sonar.batch.scan.filesystem.InputFileMetadata;
 import org.sonar.batch.scan.filesystem.InputPathCache;
 import org.sonar.batch.scan.measure.MeasureCache;
 import org.sonar.batch.source.CodeColorizers;
@@ -56,8 +56,10 @@ import org.sonar.core.source.db.FileSourceMapper;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nullable;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -115,7 +117,7 @@ public class SourcePersister implements ScanPersister {
 
       FileSourceMapper mapper = session.getMapper(FileSourceMapper.class);
 
-      for (InputPath inputPath : inputPathCache.all()) {
+      for (InputPath inputPath : inputPathCache.allFiles()) {
         if (inputPath instanceof InputFile) {
           persist(session, mapper, inputPath, fileSourceDtoByFileUuid);
         }
@@ -132,7 +134,8 @@ public class SourcePersister implements ScanPersister {
     org.sonar.api.resources.File file = (org.sonar.api.resources.File) resourceCache.get(inputFile.key()).resource();
     String fileUuid = file.getUuid();
     FileSourceDto previous = fileSourceDtoByFileUuid.get(fileUuid);
-    String newData = getSourceData(inputFile);
+    InputFileMetadata metadata = inputPathCache.getFileMetadata(inputFile.moduleKey(), inputFile.relativePath());
+    String newData = getSourceData(inputFile, metadata);
     String newDataHash = newData != null ? DigestUtils.md5Hex(newData) : "0";
     Date now = system2.newDate();
     try {
@@ -142,20 +145,20 @@ public class SourcePersister implements ScanPersister {
           .setFileUuid(fileUuid)
           .setData(newData)
           .setDataHash(newDataHash)
-          .setSrcHash(inputFile.hash())
-          .setLineHashes(lineHashesAsMd5Hex(inputFile))
+          .setSrcHash(metadata.hash())
+          .setLineHashes(lineHashesAsMd5Hex(inputFile, metadata))
           .setCreatedAt(now.getTime())
           .setUpdatedAt(now.getTime());
         mapper.insert(newFileSource);
         session.commit();
       } else {
         // Update only if data_hash has changed or if src_hash is missing (progressive migration)
-        if (!newDataHash.equals(previous.getDataHash()) || !inputFile.hash().equals(previous.getSrcHash())) {
+        if (!newDataHash.equals(previous.getDataHash()) || !metadata.hash().equals(previous.getSrcHash())) {
           previous
             .setData(newData)
-            .setLineHashes(lineHashesAsMd5Hex(inputFile))
+            .setLineHashes(lineHashesAsMd5Hex(inputFile, metadata))
             .setDataHash(newDataHash)
-            .setSrcHash(inputFile.hash())
+            .setSrcHash(metadata.hash())
             .setUpdatedAt(now.getTime());
           mapper.update(previous);
           session.commit();
@@ -167,29 +170,46 @@ public class SourcePersister implements ScanPersister {
   }
 
   @CheckForNull
-  private String lineHashesAsMd5Hex(DefaultInputFile inputFile) {
-    if (inputFile.lines() == 0) {
+  private String lineHashesAsMd5Hex(DefaultInputFile f, InputFileMetadata metadata) {
+    if (f.lines() == 0) {
       return null;
     }
     // A md5 string is 32 char long + '\n' = 33
-    StringBuilder result = new StringBuilder(inputFile.lines() * (32 + 1));
-    for (byte[] lineHash : inputFile.lineHashes()) {
-      if (result.length() > 0) {
-        result.append("\n");
+    StringBuilder result = new StringBuilder(f.lines() * (32 + 1));
+
+    try {
+      BufferedReader reader = Files.newBufferedReader(f.path(), f.charset());
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < f.lines(); i++) {
+        String lineStr = reader.readLine();
+        lineStr = lineStr == null ? "" : lineStr;
+        for (int j = 0; j < lineStr.length(); j++) {
+          char c = lineStr.charAt(j);
+          if (!Character.isWhitespace(c)) {
+            sb.append(c);
+          }
+        }
+        if (i > 0) {
+          result.append("\n");
+        }
+        result.append(sb.length() > 0 ? DigestUtils.md5Hex(sb.toString()) : "");
+        sb.setLength(0);
       }
-      result.append(lineHash != null ? Hex.encodeHexString(lineHash) : "");
+    } catch (Exception e) {
+      throw new IllegalStateException("Unable to compute line hashes of file " + f, e);
     }
+
     return result.toString();
   }
 
   @CheckForNull
-  String getSourceData(DefaultInputFile file) {
+  String getSourceData(DefaultInputFile file, InputFileMetadata metadata) {
     if (file.lines() == 0) {
       return null;
     }
     List<String> lines;
     try {
-      lines = FileUtils.readLines(file.file(), file.encoding());
+      lines = FileUtils.readLines(file.file(), file.charset());
     } catch (IOException e) {
       throw new IllegalStateException("Unable to read file", e);
     }
@@ -210,8 +230,8 @@ public class SourcePersister implements ScanPersister {
     Map<Integer, String> overallCondByLine = getLineMetric(file, CoreMetrics.OVERALL_CONDITIONS_BY_LINE_KEY);
     Map<Integer, String> overallCoveredCondByLine = getLineMetric(file, CoreMetrics.OVERALL_COVERED_CONDITIONS_BY_LINE_KEY);
     SyntaxHighlightingData highlighting = loadHighlighting(file);
-    String[] highlightingPerLine = computeHighlightingPerLine(file, highlighting);
-    String[] symbolReferencesPerLine = computeSymbolReferencesPerLine(file, loadSymbolReferences(file));
+    String[] highlightingPerLine = computeHighlightingPerLine(file, metadata, highlighting);
+    String[] symbolReferencesPerLine = computeSymbolReferencesPerLine(file, metadata, loadSymbolReferences(file));
     String[] duplicationsPerLine = computeDuplicationsPerLine(file, duplicationCache.byComponent(file.key()));
 
     StringWriter writer = new StringWriter(file.lines() * 16);
@@ -297,7 +317,7 @@ public class SourcePersister implements ScanPersister {
     SyntaxHighlightingData highlighting = componentDataCache.getData(file.key(), SnapshotDataTypes.SYNTAX_HIGHLIGHTING);
     String language = file.language();
     if (highlighting == null && language != null) {
-      highlighting = codeColorizers.toSyntaxHighlighting(file.file(), file.encoding(), language);
+      highlighting = codeColorizers.toSyntaxHighlighting(file.file(), file.charset(), language);
     }
     return highlighting;
   }
@@ -307,7 +327,7 @@ public class SourcePersister implements ScanPersister {
     return componentDataCache.getData(file.key(), SnapshotDataTypes.SYMBOL_HIGHLIGHTING);
   }
 
-  String[] computeHighlightingPerLine(DefaultInputFile file, @Nullable SyntaxHighlightingData highlighting) {
+  String[] computeHighlightingPerLine(DefaultInputFile file, InputFileMetadata metadata, @Nullable SyntaxHighlightingData highlighting) {
     String[] result = new String[file.lines()];
     if (highlighting == null) {
       return result;
@@ -316,12 +336,12 @@ public class SourcePersister implements ScanPersister {
     int currentLineIdx = 1;
     StringBuilder[] highlightingPerLine = new StringBuilder[file.lines()];
     for (SyntaxHighlightingRule rule : rules) {
-      while (currentLineIdx < file.lines() && rule.getStartPosition() >= file.originalLineOffsets()[currentLineIdx]) {
+      while (currentLineIdx < file.lines() && rule.getStartPosition() >= metadata.originalLineOffsets()[currentLineIdx]) {
         // This rule starts on another line so advance
         currentLineIdx++;
       }
       // Now we know current rule starts on current line
-      writeDataPerLine(file.originalLineOffsets(), rule, rule.getStartPosition(), rule.getEndPosition(), highlightingPerLine, currentLineIdx, new RuleItemWriter());
+      writeDataPerLine(metadata.originalLineOffsets(), rule, rule.getStartPosition(), rule.getEndPosition(), highlightingPerLine, currentLineIdx, new RuleItemWriter());
     }
     for (int i = 0; i < file.lines(); i++) {
       result[i] = highlightingPerLine[i] != null ? highlightingPerLine[i].toString() : null;
@@ -329,13 +349,13 @@ public class SourcePersister implements ScanPersister {
     return result;
   }
 
-  String[] computeSymbolReferencesPerLine(DefaultInputFile file, @Nullable SymbolData symbolRefs) {
+  String[] computeSymbolReferencesPerLine(DefaultInputFile file, InputFileMetadata metadata, @Nullable SymbolData symbolRefs) {
     String[] result = new String[file.lines()];
     if (symbolRefs == null) {
       return result;
     }
     StringBuilder[] symbolRefsPerLine = new StringBuilder[file.lines()];
-    long[] originalLineOffsets = file.originalLineOffsets();
+    int[] originalLineOffsets = metadata.originalLineOffsets();
     int symbolId = 1;
     List<Symbol> symbols = new ArrayList<Symbol>(symbolRefs.referencesBySymbol().keySet());
     // Sort symbols to avoid false variation that would lead to an unnecessary update
@@ -365,12 +385,12 @@ public class SourcePersister implements ScanPersister {
     return result;
   }
 
-  private void addSymbol(int symbolId, int startOffset, int endOffset, long[] originalLineOffsets, StringBuilder[] result) {
+  private void addSymbol(int symbolId, int startOffset, int endOffset, int[] originalLineOffsets, StringBuilder[] result) {
     int startLine = binarySearchLine(startOffset, originalLineOffsets);
     writeDataPerLine(originalLineOffsets, symbolId, startOffset, endOffset, result, startLine, new SymbolItemWriter());
   }
 
-  private int binarySearchLine(int declarationStartOffset, long[] originalLineOffsets) {
+  private int binarySearchLine(int declarationStartOffset, int[] originalLineOffsets) {
     int begin = 0;
     int end = originalLineOffsets.length - 1;
     while (begin < end) {
@@ -384,7 +404,7 @@ public class SourcePersister implements ScanPersister {
     return begin + 1;
   }
 
-  private <G> void writeDataPerLine(long[] originalLineOffsets, G item, int globalStartOffset, int globalEndOffset, StringBuilder[] dataPerLine, int startLine,
+  private <G> void writeDataPerLine(int[] originalLineOffsets, G item, int globalStartOffset, int globalEndOffset, StringBuilder[] dataPerLine, int startLine,
     RangeItemWriter<G> writer) {
     int currentLineIdx = startLine;
     // We know current item starts on current line

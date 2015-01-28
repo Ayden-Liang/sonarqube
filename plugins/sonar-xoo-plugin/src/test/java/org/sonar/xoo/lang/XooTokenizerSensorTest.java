@@ -58,6 +58,7 @@ public class XooTokenizerSensorTest {
     baseDir = temp.newFolder();
     sensor = new XooTokenizerSensor();
     fileSystem = new DefaultFileSystem();
+    fileSystem.setBaseDir(baseDir.toPath());
     when(context.fileSystem()).thenReturn(fileSystem);
     settings = new Settings();
     when(context.settings()).thenReturn(settings);
@@ -70,7 +71,7 @@ public class XooTokenizerSensorTest {
 
   @Test
   public void testNoExecutionIfExclusion() {
-    DefaultInputFile inputFile = new DefaultInputFile("foo", "src/foo.xoo").setAbsolutePath(new File(baseDir, "src/foo.xoo").getAbsolutePath()).setLanguage("xoo");
+    DefaultInputFile inputFile = new DefaultInputFile("foo", "src/foo.xoo").setLanguage("xoo");
     fileSystem.add(inputFile);
     settings.setProperty(CoreProperties.CPD_EXCLUSIONS, "**/foo.xoo");
     sensor.execute(context);
@@ -81,7 +82,7 @@ public class XooTokenizerSensorTest {
   public void testExecution() throws IOException {
     File source = new File(baseDir, "src/foo.xoo");
     FileUtils.write(source, "token1 token2 token3\ntoken4");
-    DefaultInputFile inputFile = new DefaultInputFile("foo", "src/foo.xoo").setAbsolutePath(new File(baseDir, "src/foo.xoo").getAbsolutePath()).setLanguage("xoo");
+    DefaultInputFile inputFile = new DefaultInputFile("foo", "src/foo.xoo").setLanguage("xoo");
     fileSystem.add(inputFile);
     DuplicationTokenBuilder builder = mock(DuplicationTokenBuilder.class);
     when(context.duplicationTokenBuilder(inputFile)).thenReturn(builder);
