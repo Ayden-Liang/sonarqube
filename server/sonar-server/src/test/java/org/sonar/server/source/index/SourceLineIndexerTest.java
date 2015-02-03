@@ -38,10 +38,13 @@ import org.sonar.core.persistence.DbTester;
 import org.sonar.server.db.DbClient;
 import org.sonar.server.es.EsTester;
 import org.sonar.server.search.BaseNormalizer;
+import org.sonar.server.source.db.FileSourceTesting;
 import org.sonar.test.DbTests;
 import org.sonar.test.TestUtils;
 
 import java.io.FileInputStream;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -69,8 +72,16 @@ public class SourceLineIndexerTest {
   @Test
   public void index_source_lines_from_db() throws Exception {
     db.prepareDbUnit(getClass(), "db.xml");
+
+    Connection connection = db.openConnection();
+    PreparedStatement stmt = connection.prepareStatement("UPDATE file_sources SET binary_data = ? WHERE id=1");
+    stmt.setBytes(1, FileSourceTesting.generateFakeData(3));
+    stmt.executeUpdate();
+    stmt.close();
+    connection.close();
+
     indexer.index();
-    assertThat(countDocuments()).isEqualTo(2);
+    assertThat(countDocuments()).isEqualTo(3);
   }
 
   @Test

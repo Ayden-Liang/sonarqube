@@ -165,7 +165,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     FileSourceDto fileSourceDto = new FileSourceDao(getMyBatis()).select("uuidsame");
     assertThat(fileSourceDto.getCreatedAt()).isEqualTo(DateUtils.parseDateTime("2014-10-10T16:44:02+0200").getTime());
     assertThat(fileSourceDto.getUpdatedAt()).isEqualTo(now.getTime());
-    assertThat(fileSourceDto.getData()).isEqualTo(
+    assertThat(fileSourceDto.getBinaryData()).isEqualTo(
       ",,,,,,,,,,,,,,,changed\r\n,,,,,,,,,,,,,,,content\r\n");
     assertThat(fileSourceDto.getLineHashes()).isEqualTo(md5Hex("changed") + "\n" + md5Hex("content"));
     assertThat(fileSourceDto.getDataHash()).isEqualTo("d1a4dd62422639f665a8d80b37c59f8d");
@@ -211,7 +211,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     FileSourceDto fileSourceDto = new FileSourceDao(getMyBatis()).select("uuidnew");
     assertThat(fileSourceDto.getCreatedAt()).isEqualTo(now.getTime());
     assertThat(fileSourceDto.getUpdatedAt()).isEqualTo(now.getTime());
-    assertThat(fileSourceDto.getData()).isEqualTo(
+    assertThat(fileSourceDto.getBinaryData()).isEqualTo(
       ",,,,,,,,,,,,,,,foo\r\n,,,,,,,,,,,,,,,bar\r\n,,,,,,,,,,,,,,,biz\r\n");
     assertThat(fileSourceDto.getLineHashes()).isEqualTo(md5Hex("foo") + "\n" + md5Hex("bar") + "\n" + md5Hex("biz"));
     assertThat(fileSourceDto.getDataHash()).isEqualTo("a34ed99cc7d27150c82f5cba2b22b665");
@@ -296,7 +296,7 @@ public class SourcePersisterTest extends AbstractDaoTestCase {
     assertThat(fileSourceDto.getCreatedAt()).isEqualTo(now.getTime());
     assertThat(fileSourceDto.getUpdatedAt()).isEqualTo(now.getTime());
     assertThat(fileSourceDto.getLineHashes()).isEqualTo(md5Hex("foo") + "\n" + md5Hex("bar") + "\n" + md5Hex("biz"));
-    assertThat(fileSourceDto.getData()).isEqualTo(
+    assertThat(fileSourceDto.getBinaryData()).isEqualTo(
       "123,julien,2014-10-11T16:44:02+0100,1,4,2,2,5,3,3,6,4,\"0,3,a\",\"1,2,1;0,2,2\",\"1,3\",foo\r\n"
         + "234,simon,2014-10-12T16:44:02+0100,,,,,,,,,,\"0,1,cd\",\"0,1,1;0,2,2\",3,bar\r\n"
         + "345,julien,2014-10-13T16:44:02+0100,0,,,0,,,0,,,\"0,9,c\",\"4,5,1;0,2,2\",2,biz\r\n");

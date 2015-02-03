@@ -38,9 +38,8 @@ public class SourceLineDoc extends BaseDoc {
     super(fields);
   }
 
-  // For testing purpose
   public SourceLineDoc() {
-    this(new HashMap<String, Object>());
+    this(new HashMap<String, Object>(20));
   }
 
   public String projectUuid() {

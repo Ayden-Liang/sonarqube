@@ -36,9 +36,9 @@ import org.sonar.api.batch.sensor.duplication.DuplicationGroup.Block;
 import org.sonar.api.batch.sensor.symbol.Symbol;
 import org.sonar.api.measures.CoreMetrics;
 import org.sonar.api.measures.Measure;
+import org.sonar.api.utils.DateUtils;
 import org.sonar.api.utils.KeyValueFormat;
 import org.sonar.api.utils.System2;
-import org.sonar.api.utils.text.CsvWriter;
 import org.sonar.batch.ProjectTree;
 import org.sonar.batch.duplication.DuplicationCache;
 import org.sonar.batch.highlighting.SyntaxHighlightingData;
@@ -52,16 +52,15 @@ import org.sonar.core.persistence.MyBatis;
 import org.sonar.core.source.SnapshotDataTypes;
 import org.sonar.core.source.db.FileSourceDto;
 import org.sonar.core.source.db.FileSourceMapper;
+import org.sonar.server.source.db.FileSourceDb;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -102,14 +101,12 @@ public class SourcePersister implements ScanPersister {
     // Don't use batch insert for file_sources since keeping all data in memory can produce OOM for big files
     try (DbSession session = mybatis.openSession(false)) {
 
-      final Map<String, FileSourceDto> fileSourceDtoByFileUuid = new HashMap<String, FileSourceDto>();
-
-      session.select("org.sonar.core.source.db.FileSourceMapper.selectAllFileDataHashByProject", projectTree.getRootProject().getUuid(), new ResultHandler() {
-
+      final Map<String, FileSourceDto> previousDtosByUuid = new HashMap<>();
+      session.select("org.sonar.core.source.db.FileSourceMapper.selectHashesForProject", projectTree.getRootProject().getUuid(), new ResultHandler() {
         @Override
         public void handleResult(ResultContext context) {
           FileSourceDto dto = (FileSourceDto) context.getResultObject();
-          fileSourceDtoByFileUuid.put(dto.getFileUuid(), dto);
+          previousDtosByUuid.put(dto.getFileUuid(), dto);
         }
       });
 
@@ -117,7 +114,7 @@ public class SourcePersister implements ScanPersister {
 
       for (InputPath inputPath : inputPathCache.all()) {
         if (inputPath instanceof InputFile) {
-          persist(session, mapper, inputPath, fileSourceDtoByFileUuid);
+          persist(session, mapper, inputPath, previousDtosByUuid);
         }
       }
     } catch (Exception e) {
@@ -126,43 +123,38 @@ public class SourcePersister implements ScanPersister {
 
   }
 
-  private void persist(DbSession session, FileSourceMapper mapper, InputPath inputPath, Map<String, FileSourceDto> fileSourceDtoByFileUuid) {
+  private void persist(DbSession session, FileSourceMapper mapper, InputPath inputPath, Map<String, FileSourceDto> previousDtosByUuid) {
     DefaultInputFile inputFile = (DefaultInputFile) inputPath;
-    LOG.debug("Processing {}", inputFile.absolutePath());
-    org.sonar.api.resources.File file = (org.sonar.api.resources.File) resourceCache.get(inputFile.key()).resource();
-    String fileUuid = file.getUuid();
-    FileSourceDto previous = fileSourceDtoByFileUuid.get(fileUuid);
-    String newData = getSourceData(inputFile);
-    String newDataHash = newData != null ? DigestUtils.md5Hex(newData) : "0";
-    Date now = system2.newDate();
-    try {
-      if (previous == null) {
-        FileSourceDto newFileSource = new FileSourceDto()
-          .setProjectUuid(projectTree.getRootProject().getUuid())
-          .setFileUuid(fileUuid)
-          .setData(newData)
-          .setDataHash(newDataHash)
+    org.sonar.api.resources.File resource = (org.sonar.api.resources.File) resourceCache.get(inputFile.key()).resource();
+    String fileUuid = resource.getUuid();
+
+    byte[] data = computeData(inputFile);
+    String dataHash = DigestUtils.md5Hex(data);
+    FileSourceDto previousDto = previousDtosByUuid.get(fileUuid);
+    if (previousDto == null) {
+      FileSourceDto dto = new FileSourceDto()
+        .setProjectUuid(projectTree.getRootProject().getUuid())
+        .setFileUuid(fileUuid)
+        .setBinaryData(data)
+        .setDataHash(dataHash)
+        .setSrcHash(inputFile.hash())
+        .setLineHashes(lineHashesAsMd5Hex(inputFile))
+        .setCreatedAt(system2.now())
+        .setUpdatedAt(system2.now());
+      mapper.insert(dto);
+      session.commit();
+    } else {
+      // Update only if data_hash has changed or if src_hash is missing (progressive migration)
+      if (!dataHash.equals(previousDto.getDataHash()) || !inputFile.hash().equals(previousDto.getSrcHash())) {
+        previousDto
+          .setBinaryData(data)
+          .setDataHash(dataHash)
           .setSrcHash(inputFile.hash())
           .setLineHashes(lineHashesAsMd5Hex(inputFile))
-          .setCreatedAt(now.getTime())
-          .setUpdatedAt(now.getTime());
-        mapper.insert(newFileSource);
+          .setUpdatedAt(system2.now());
+        mapper.update(previousDto);
         session.commit();
-      } else {
-        // Update only if data_hash has changed or if src_hash is missing (progressive migration)
-        if (!newDataHash.equals(previous.getDataHash()) || !inputFile.hash().equals(previous.getSrcHash())) {
-          previous
-            .setData(newData)
-            .setLineHashes(lineHashesAsMd5Hex(inputFile))
-            .setDataHash(newDataHash)
-            .setSrcHash(inputFile.hash())
-            .setUpdatedAt(now.getTime());
-          mapper.update(previous);
-          session.commit();
-        }
       }
-    } catch (Exception e) {
-      throw new IllegalStateException("Unable to save file sources for " + inputPath.absolutePath(), e);
     }
   }
 
@@ -182,67 +174,83 @@ public class SourcePersister implements ScanPersister {
     return result.toString();
   }
 
-  @CheckForNull
-  String getSourceData(DefaultInputFile file) {
-    if (file.lines() == 0) {
-      return null;
-    }
-    List<String> lines;
+  private byte[] computeData(DefaultInputFile file) {
     try {
-      lines = FileUtils.readLines(file.file(), file.encoding());
-    } catch (IOException e) {
-      throw new IllegalStateException("Unable to read file", e);
-    }
-    // Missing empty last line
-    if (lines.size() == file.lines() - 1) {
-      lines.add("");
-    }
-    Map<Integer, String> authorsByLine = getLineMetric(file, CoreMetrics.SCM_AUTHORS_BY_LINE_KEY);
-    Map<Integer, String> revisionsByLine = getLineMetric(file, CoreMetrics.SCM_REVISIONS_BY_LINE_KEY);
-    Map<Integer, String> datesByLine = getLineMetric(file, CoreMetrics.SCM_LAST_COMMIT_DATETIMES_BY_LINE_KEY);
-    Map<Integer, String> utHitsByLine = getLineMetric(file, CoreMetrics.COVERAGE_LINE_HITS_DATA_KEY);
-    Map<Integer, String> utCondByLine = getLineMetric(file, CoreMetrics.CONDITIONS_BY_LINE_KEY);
-    Map<Integer, String> utCoveredCondByLine = getLineMetric(file, CoreMetrics.COVERED_CONDITIONS_BY_LINE_KEY);
-    Map<Integer, String> itHitsByLine = getLineMetric(file, CoreMetrics.IT_COVERAGE_LINE_HITS_DATA_KEY);
-    Map<Integer, String> itCondByLine = getLineMetric(file, CoreMetrics.IT_CONDITIONS_BY_LINE_KEY);
-    Map<Integer, String> itCoveredCondByLine = getLineMetric(file, CoreMetrics.IT_COVERED_CONDITIONS_BY_LINE_KEY);
-    Map<Integer, String> overallHitsByLine = getLineMetric(file, CoreMetrics.OVERALL_COVERAGE_LINE_HITS_DATA_KEY);
-    Map<Integer, String> overallCondByLine = getLineMetric(file, CoreMetrics.OVERALL_CONDITIONS_BY_LINE_KEY);
-    Map<Integer, String> overallCoveredCondByLine = getLineMetric(file, CoreMetrics.OVERALL_COVERED_CONDITIONS_BY_LINE_KEY);
-    SyntaxHighlightingData highlighting = loadHighlighting(file);
-    String[] highlightingPerLine = computeHighlightingPerLine(file, highlighting);
-    String[] symbolReferencesPerLine = computeSymbolReferencesPerLine(file, loadSymbolReferences(file));
-    String[] duplicationsPerLine = computeDuplicationsPerLine(file, duplicationCache.byComponent(file.key()));
+      List<String> lines = FileUtils.readLines(file.file(), file.encoding());
+      // Missing empty last line
+      if (lines.size() == file.lines() - 1) {
+        lines.add("");
+      }
 
-    StringWriter writer = new StringWriter(file.lines() * 16);
-    CsvWriter csv = CsvWriter.of(writer);
-    for (int lineIdx = 1; lineIdx <= file.lines(); lineIdx++) {
-      csv.values(revisionsByLine.get(lineIdx), authorsByLine.get(lineIdx), datesByLine.get(lineIdx),
-        utHitsByLine.get(lineIdx), utCondByLine.get(lineIdx), utCoveredCondByLine.get(lineIdx),
-        itHitsByLine.get(lineIdx), itCondByLine.get(lineIdx), itCoveredCondByLine.get(lineIdx),
-        overallHitsByLine.get(lineIdx), overallCondByLine.get(lineIdx), overallCoveredCondByLine.get(lineIdx),
-        highlightingPerLine[lineIdx - 1], symbolReferencesPerLine[lineIdx - 1], duplicationsPerLine[lineIdx - 1],
-        CharMatcher.anyOf(BOM).removeFrom(lines.get(lineIdx - 1)));
-      // Free memory
-      revisionsByLine.remove(lineIdx);
-      authorsByLine.remove(lineIdx);
-      datesByLine.remove(lineIdx);
-      utHitsByLine.remove(lineIdx);
-      utCondByLine.remove(lineIdx);
-      utCoveredCondByLine.remove(lineIdx);
-      itHitsByLine.remove(lineIdx);
-      itCondByLine.remove(lineIdx);
-      itCoveredCondByLine.remove(lineIdx);
-      overallHitsByLine.remove(lineIdx);
-      overallCondByLine.remove(lineIdx);
-      overallCoveredCondByLine.remove(lineIdx);
-      highlightingPerLine[lineIdx - 1] = null;
-      symbolReferencesPerLine[lineIdx - 1] = null;
-      duplicationsPerLine[lineIdx - 1] = null;
-      lines.set(lineIdx - 1, null);
+      Map<Integer, String> authorsByLine = getLineMetric(file, CoreMetrics.SCM_AUTHORS_BY_LINE_KEY);
+      Map<Integer, String> revisionsByLine = getLineMetric(file, CoreMetrics.SCM_REVISIONS_BY_LINE_KEY);
+      Map<Integer, String> datesByLine = getLineMetric(file, CoreMetrics.SCM_LAST_COMMIT_DATETIMES_BY_LINE_KEY);
+      Map<Integer, String> utHitsByLine = getLineMetric(file, CoreMetrics.COVERAGE_LINE_HITS_DATA_KEY);
+      Map<Integer, String> utCondByLine = getLineMetric(file, CoreMetrics.CONDITIONS_BY_LINE_KEY);
+      Map<Integer, String> utCoveredCondByLine = getLineMetric(file, CoreMetrics.COVERED_CONDITIONS_BY_LINE_KEY);
+      Map<Integer, String> itHitsByLine = getLineMetric(file, CoreMetrics.IT_COVERAGE_LINE_HITS_DATA_KEY);
+      Map<Integer, String> itCondByLine = getLineMetric(file, CoreMetrics.IT_CONDITIONS_BY_LINE_KEY);
+      Map<Integer, String> itCoveredCondByLine = getLineMetric(file, CoreMetrics.IT_COVERED_CONDITIONS_BY_LINE_KEY);
+      Map<Integer, String> overallHitsByLine = getLineMetric(file, CoreMetrics.OVERALL_COVERAGE_LINE_HITS_DATA_KEY);
+      Map<Integer, String> overallCondByLine = getLineMetric(file, CoreMetrics.OVERALL_CONDITIONS_BY_LINE_KEY);
+      Map<Integer, String> overallCoveredCondByLine = getLineMetric(file, CoreMetrics.OVERALL_COVERED_CONDITIONS_BY_LINE_KEY);
+      SyntaxHighlightingData highlighting = loadHighlighting(file);
+      String[] highlightingPerLine = computeHighlightingPerLine(file, highlighting);
+      String[] symbolReferencesPerLine = computeSymbolReferencesPerLine(file, loadSymbolReferences(file));
+      String[] duplicationsPerLine = computeDuplicationsPerLine(file, duplicationCache.byComponent(file.key()));
+
+      FileSourceDb.Data.Builder dataBuilder = FileSourceDb.Data.newBuilder();
+      for (int lineIdx = 1; lineIdx <= file.lines(); lineIdx++) {
+        FileSourceDb.Line.Builder lineBuilder = dataBuilder.addLinesBuilder();
+        lineBuilder.setLine(lineIdx);
+        String s = revisionsByLine.get(lineIdx);
+        if (StringUtils.isNotEmpty(s)) {
+          lineBuilder.setScmRevision(s);
+        }
+        s = authorsByLine.get(lineIdx);
+        if (StringUtils.isNotEmpty(s)) {
+          lineBuilder.setScmAuthor(s);
+        }
+        s = datesByLine.get(lineIdx);
+        if (StringUtils.isNotEmpty(s)) {
+          lineBuilder.setScmDate(DateUtils.parseDateTime(s).getTime());
+        }
+        s = utHitsByLine.get(lineIdx);
+        if (StringUtils.isNotEmpty(s)) {
+          lineBuilder.setUtLineHits(Integer.parseInt(s));
+        }
+        s = utCondByLine.get(lineIdx);
+        if (StringUtils.isNotEmpty(s)) {
+          lineBuilder.setUtConditions(Integer.parseInt(s));
+        }
+        s = CharMatcher.anyOf(BOM).removeFrom(lines.get(lineIdx - 1));
+        if (s != null) {
+          lineBuilder.setSource(s);
+        }
+
+        // Free memory
+        revisionsByLine.remove(lineIdx);
+        authorsByLine.remove(lineIdx);
+        datesByLine.remove(lineIdx);
+        utHitsByLine.remove(lineIdx);
+        utCondByLine.remove(lineIdx);
+        utCoveredCondByLine.remove(lineIdx);
+        itHitsByLine.remove(lineIdx);
+        itCondByLine.remove(lineIdx);
+        itCoveredCondByLine.remove(lineIdx);
+        overallHitsByLine.remove(lineIdx);
+        overallCondByLine.remove(lineIdx);
+        overallCoveredCondByLine.remove(lineIdx);
+        highlightingPerLine[lineIdx - 1] = null;
+        symbolReferencesPerLine[lineIdx - 1] = null;
+        duplicationsPerLine[lineIdx - 1] = null;
+        lines.set(lineIdx - 1, null);
+        lineBuilder.build();
+      }
+      return FileSourceDto.serializeData(dataBuilder.build());
+    } catch (IOException e) {
+      throw new IllegalStateException("Fail to read file " + file, e);
     }
-    csv.close();
-    return StringUtils.defaultIfEmpty(writer.toString(), null);
   }
 
   private String[] computeDuplicationsPerLine(DefaultInputFile file, List<DuplicationGroup> duplicationGroups) {
